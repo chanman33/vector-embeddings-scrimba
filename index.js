@@ -68,10 +68,49 @@ async function getEmbeddingWithRetry(textChunk, retries = 3) {
 }
 
 /**
- * Document Search
- * Handles similarity search functionality using vector embeddings
+ * Chat Completion
+ * Generates conversational responses using OpenAI's chat completion
  */
-async function searchSimilarDocuments(queryText, limit = 3) {
+async function generateChatResponse(documents, query) {
+  const context = documents.map(doc => doc.content).join('\n\n');
+  
+  const messages = [
+    {
+      role: 'system',
+      content: `You are an enthusiastic podcast expert who helps users find relevant podcast episodes. 
+                Provide concise, natural responses that directly answer the user's question using the 
+                provided context. If the context doesn't contain relevant information, politely say so. 
+                Include specific episode references when possible. Keep responses under 3 sentences.`
+    },
+    {
+      role: 'user',
+      content: `Context: ${context}\n\nQuestion: ${query}`
+    }
+  ];
+
+  try {
+    await rateLimiter.waitForToken();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4',
+      messages,
+      temperature: 0.7,
+      max_tokens: 150,
+      presence_penalty: 0.3,
+      frequency_penalty: 0.3
+    });
+
+    return completion.choices[0].message.content;
+  } catch (error) {
+    console.error('Chat completion error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Document Search
+ * Modified to include conversational response
+ */
+async function searchSimilarDocuments(queryText, limit = 1) {
   try {
     console.log('Getting embedding for query:', queryText);
     const queryEmbedding = await getEmbeddingWithRetry(queryText);
@@ -88,7 +127,13 @@ async function searchSimilarDocuments(queryText, limit = 3) {
       throw error;
     }
 
-    return similarDocuments;
+    // Generate conversational response
+    const chatResponse = await generateChatResponse(similarDocuments, queryText);
+    
+    return {
+      documents: similarDocuments,
+      response: chatResponse
+    };
   } catch (error) {
     console.error('Search error:', error);
     throw error;
@@ -152,7 +197,7 @@ async function initialize() {
 
 /**
  * UI Setup
- * Creates and manages the search interface
+ * Modified to display conversational response
  */
 function setupSearchUI() {
   const searchForm = document.createElement('form');
@@ -180,13 +225,21 @@ function setupSearchUI() {
 
     try {
       resultsDiv.innerHTML = 'Searching...';
-      const results = await searchSimilarDocuments(query);
-      resultsDiv.innerHTML = results.map(doc => `
-        <div style="margin: 1em 0; padding: 1em; border: 1px solid #ccc;">
-          <p>${doc.content}</p>
-          <small>Similarity: ${(doc.similarity * 100).toFixed(1)}%</small>
+      const { documents, response } = await searchSimilarDocuments(query);
+      
+      resultsDiv.innerHTML = `
+        <div style="margin-bottom: 2em; padding: 1em; background: #f5f5f5; border-radius: 8px;">
+          <h3>AI Response:</h3>
+          <p>${response}</p>
         </div>
-      `).join('');
+        <h3>Related Episodes:</h3>
+        ${documents.map(doc => `
+          <div style="margin: 1em 0; padding: 1em; border: 1px solid #ccc; border-radius: 4px;">
+            <p>${doc.content}</p>
+            <small>Similarity: ${(doc.similarity * 100).toFixed(1)}%</small>
+          </div>
+        `).join('')}
+      `;
     } catch (error) {
       resultsDiv.innerHTML = `Error: ${error.message}`;
     }
