@@ -1,7 +1,9 @@
 {
   "name": "project",
   "dependencies": {
+    "@langchain/openai": "^0.3.14",
     "@supabase/supabase-js": "2.38.0",
+    "langchain": "^0.3.6",
     "openai": "4.12.1"
   },
   "devDependencies": {
